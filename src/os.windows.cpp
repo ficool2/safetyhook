@@ -19,7 +19,7 @@
 #include "safetyhook/os.hpp"
 
 namespace safetyhook {
-std::expected<uint8_t*, OsError> vm_allocate(uint8_t* address, size_t size, VmAccess access) {
+tl::expected<uint8_t*, OsError> vm_allocate(uint8_t* address, size_t size, VmAccess access) {
     DWORD protect = 0;
 
     if (access == VM_ACCESS_R) {
@@ -31,13 +31,13 @@ std::expected<uint8_t*, OsError> vm_allocate(uint8_t* address, size_t size, VmAc
     } else if (access == VM_ACCESS_RWX) {
         protect = PAGE_EXECUTE_READWRITE;
     } else {
-        return std::unexpected{OsError::FAILED_TO_ALLOCATE};
+        return tl::make_unexpected(OsError::FAILED_TO_ALLOCATE);
     }
 
     auto* result = VirtualAlloc(address, size, MEM_COMMIT | MEM_RESERVE, protect);
 
     if (result == nullptr) {
-        return std::unexpected{OsError::FAILED_TO_ALLOCATE};
+        return tl::make_unexpected(OsError::FAILED_TO_ALLOCATE);
     }
 
     return static_cast<uint8_t*>(result);
@@ -47,7 +47,7 @@ void vm_free(uint8_t* address) {
     VirtualFree(address, 0, MEM_RELEASE);
 }
 
-std::expected<uint32_t, OsError> vm_protect(uint8_t* address, size_t size, VmAccess access) {
+tl::expected<uint32_t, OsError> vm_protect(uint8_t* address, size_t size, VmAccess access) {
     DWORD protect = 0;
 
     if (access == VM_ACCESS_R) {
@@ -59,41 +59,41 @@ std::expected<uint32_t, OsError> vm_protect(uint8_t* address, size_t size, VmAcc
     } else if (access == VM_ACCESS_RWX) {
         protect = PAGE_EXECUTE_READWRITE;
     } else {
-        return std::unexpected{OsError::FAILED_TO_PROTECT};
+        return tl::make_unexpected(OsError::FAILED_TO_PROTECT);
     }
 
     return vm_protect(address, size, protect);
 }
 
-std::expected<uint32_t, OsError> vm_protect(uint8_t* address, size_t size, uint32_t protect) {
+tl::expected<uint32_t, OsError> vm_protect(uint8_t* address, size_t size, uint32_t protect) {
     DWORD old_protect = 0;
 
     if (VirtualProtect(address, size, protect, &old_protect) == FALSE) {
-        return std::unexpected{OsError::FAILED_TO_PROTECT};
+        return tl::make_unexpected(OsError::FAILED_TO_PROTECT);
     }
 
     return old_protect;
 }
 
-std::expected<VmBasicInfo, OsError> vm_query(uint8_t* address) {
+tl::expected<VmBasicInfo, OsError> vm_query(uint8_t* address) {
     MEMORY_BASIC_INFORMATION mbi{};
     auto result = VirtualQuery(address, &mbi, sizeof(mbi));
 
     if (result == 0) {
-        return std::unexpected{OsError::FAILED_TO_QUERY};
+        return tl::make_unexpected(OsError::FAILED_TO_QUERY);
     }
 
     VmAccess access{
-        .read = (mbi.Protect & (PAGE_READONLY | PAGE_READWRITE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE)) != 0,
-        .write = (mbi.Protect & (PAGE_READWRITE | PAGE_EXECUTE_READWRITE)) != 0,
-        .execute = (mbi.Protect & (PAGE_EXECUTE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE)) != 0,
+        (mbi.Protect & (PAGE_READONLY | PAGE_READWRITE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE)) != 0,
+        (mbi.Protect & (PAGE_READWRITE | PAGE_EXECUTE_READWRITE)) != 0,
+        (mbi.Protect & (PAGE_EXECUTE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE)) != 0,
     };
 
     return VmBasicInfo{
-        .address = static_cast<uint8_t*>(mbi.AllocationBase),
-        .size = mbi.RegionSize,
-        .access = access,
-        .is_free = mbi.State == MEM_FREE,
+        static_cast<uint8_t*>(mbi.AllocationBase),
+        mbi.RegionSize,
+        access,
+        mbi.State == MEM_FREE,
     };
 }
 
@@ -207,13 +207,13 @@ public:
     }
 
     void add_trap(uint8_t* from, uint8_t* to, size_t len) {
-        m_traps.insert_or_assign(from, TrapInfo{.from_page_start = align_down(from, 0x1000),
-                                           .from_page_end = align_up(from + len, 0x1000),
-                                           .from = from,
-                                           .to_page_start = align_down(to, 0x1000),
-                                           .to_page_end = align_up(to + len, 0x1000),
-                                           .to = to,
-                                           .len = len});
+        m_traps.insert_or_assign(from, TrapInfo{align_down(from, 0x1000),
+                                           align_up(from + len, 0x1000),
+                                           from,
+                                           align_down(to, 0x1000),
+                                           align_up(to + len, 0x1000),
+                                           to,
+                                           len});
     }
 
 private:
@@ -227,7 +227,7 @@ private:
             return EXCEPTION_CONTINUE_SEARCH;
         }
 
-        std::scoped_lock lock{mutex};
+        std::unique_lock<std::mutex> lock(mutex);
         auto* faulting_address = reinterpret_cast<uint8_t*>(exp->ExceptionRecord->ExceptionInformation[1]);
         auto* trap = instance->find_trap(faulting_address);
 
@@ -270,7 +270,7 @@ void trap_threads(uint8_t* from, uint8_t* to, size_t len, const std::function<vo
         new_protect = PAGE_EXECUTE_READWRITE;
     }
 
-    std::scoped_lock lock{TrapManager::mutex};
+    std::lock_guard<std::mutex> lock{TrapManager::mutex};
 
     if (TrapManager::instance == nullptr) {
         TrapManager::instance = std::make_unique<TrapManager>();

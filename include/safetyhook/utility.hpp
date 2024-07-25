@@ -3,7 +3,7 @@
 #ifndef SAFETYHOOK_USE_CXXMODULES
 #include <algorithm>
 #include <cstdint>
-#include <optional>
+#include "tl/optional.hpp"
 #include <type_traits>
 #else
 import std.compat;
@@ -14,8 +14,10 @@ template <typename T> constexpr void store(uint8_t* address, const T& value) {
     std::copy_n(reinterpret_cast<const uint8_t*>(&value), sizeof(T), address);
 }
 
-template <typename T>
-concept FnPtr = requires(T f) { std::is_pointer_v<T>&& std::is_function_v<std::remove_pointer_t<T>>; };
+template<typename T>
+inline void* FnPtr(T fn) {
+	return reinterpret_cast<void*&>(fn);
+}
 
 bool is_executable(uint8_t* address);
 
@@ -29,7 +31,7 @@ public:
     UnprotectMemory& operator=(UnprotectMemory&& other) noexcept;
 
 private:
-    friend std::optional<UnprotectMemory> unprotect(uint8_t*, size_t);
+    friend tl::optional<UnprotectMemory> unprotect(uint8_t*, size_t);
 
     UnprotectMemory(uint8_t* address, size_t size, uint32_t original_protection)
         : m_address{address}, m_size{size}, m_original_protection{original_protection} {}
@@ -39,7 +41,7 @@ private:
     uint32_t m_original_protection{};
 };
 
-[[nodiscard]] std::optional<UnprotectMemory> unprotect(uint8_t* address, size_t size);
+tl::optional<UnprotectMemory> unprotect(uint8_t* address, size_t size);
 
 template <typename T> constexpr T align_up(T address, size_t align) {
     const auto unaligned_address = (uintptr_t)address;

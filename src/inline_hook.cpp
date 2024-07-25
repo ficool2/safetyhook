@@ -58,10 +58,10 @@ static auto make_jmp_ff(uint8_t* src, uint8_t* dst, uint8_t* data) {
     return jmp;
 }
 
-[[nodiscard]] static std::expected<void, InlineHook::Error> emit_jmp_ff(
+static tl::expected<void, InlineHook::Error> emit_jmp_ff(
     uint8_t* src, uint8_t* dst, uint8_t* data, size_t size = sizeof(JmpFF)) {
     if (size < sizeof(JmpFF)) {
-        return std::unexpected{InlineHook::Error::not_enough_space(dst)};
+        return tl::make_unexpected(InlineHook::Error::not_enough_space(dst));
     }
 
     if (size > sizeof(JmpFF)) {
@@ -82,10 +82,10 @@ constexpr auto make_jmp_e9(uint8_t* src, uint8_t* dst) {
     return jmp;
 }
 
-[[nodiscard]] static std::expected<void, InlineHook::Error> emit_jmp_e9(
+static tl::expected<void, InlineHook::Error> emit_jmp_e9(
     uint8_t* src, uint8_t* dst, size_t size = sizeof(JmpE9)) {
     if (size < sizeof(JmpE9)) {
-        return std::unexpected{InlineHook::Error::not_enough_space(dst)};
+        return tl::make_unexpected(InlineHook::Error::not_enough_space(dst));
     }
 
     if (size > sizeof(JmpE9)) {
@@ -114,23 +114,23 @@ static bool decode(ZydisDecodedInstruction* ix, uint8_t* ip) {
     return ZYAN_SUCCESS(ZydisDecoderDecodeInstruction(&decoder, nullptr, ip, 15, ix));
 }
 
-std::expected<InlineHook, InlineHook::Error> InlineHook::create(void* target, void* destination, Flags flags) {
+tl::expected<InlineHook, InlineHook::Error> InlineHook::create(void* target, void* destination, Flags flags) {
     return create(Allocator::global(), target, destination, flags);
 }
 
-std::expected<InlineHook, InlineHook::Error> InlineHook::create(
+tl::expected<InlineHook, InlineHook::Error> InlineHook::create(
     const std::shared_ptr<Allocator>& allocator, void* target, void* destination, Flags flags) {
     InlineHook hook{};
 
-    if (const auto setup_result =
-            hook.setup(allocator, reinterpret_cast<uint8_t*>(target), reinterpret_cast<uint8_t*>(destination));
-        !setup_result) {
-        return std::unexpected{setup_result.error()};
+    const auto setup_result = hook.setup(allocator, reinterpret_cast<uint8_t*>(target), reinterpret_cast<uint8_t*>(destination));
+    if (!setup_result) {
+        return tl::make_unexpected(setup_result.error());
     }
 
     if (!(flags & StartDisabled)) {
-        if (auto enable_result = hook.enable(); !enable_result) {
-            return std::unexpected{enable_result.error()};
+        auto enable_result = hook.enable(); 
+        if (!enable_result) {
+            return tl::make_unexpected(enable_result.error());
         }
     }
 
@@ -145,7 +145,9 @@ InlineHook& InlineHook::operator=(InlineHook&& other) noexcept {
     if (this != &other) {
         destroy();
 
-        std::scoped_lock lock{m_mutex, other.m_mutex};
+        std::unique_lock<std::recursive_mutex> lock1(m_mutex, std::defer_lock);
+        std::unique_lock<std::recursive_mutex> lock2(other.m_mutex, std::defer_lock);
+        std::lock(lock1, lock2);
 
         m_target = other.m_target;
         m_destination = other.m_destination;
@@ -173,14 +175,16 @@ void InlineHook::reset() {
     *this = {};
 }
 
-std::expected<void, InlineHook::Error> InlineHook::setup(
+tl::expected<void, InlineHook::Error> InlineHook::setup(
     const std::shared_ptr<Allocator>& allocator, uint8_t* target, uint8_t* destination) {
     m_target = target;
     m_destination = destination;
 
-    if (auto e9_result = e9_hook(allocator); !e9_result) {
+    auto e9_result = e9_hook(allocator);
+    if (!e9_result) {
 #if SAFETYHOOK_ARCH_X86_64
-        if (auto ff_result = ff_hook(allocator); !ff_result) {
+        auto ff_result = ff_hook(allocator);
+        if ( !ff_result) {
             return ff_result;
         }
 #elif SAFETYHOOK_ARCH_X86_32
@@ -191,7 +195,7 @@ std::expected<void, InlineHook::Error> InlineHook::setup(
     return {};
 }
 
-std::expected<void, InlineHook::Error> InlineHook::e9_hook(const std::shared_ptr<Allocator>& allocator) {
+tl::expected<void, InlineHook::Error> InlineHook::e9_hook(const std::shared_ptr<Allocator>& allocator) {
     m_original_bytes.clear();
     m_trampoline_size = sizeof(TrampolineEpilogueE9);
 
@@ -200,7 +204,7 @@ std::expected<void, InlineHook::Error> InlineHook::e9_hook(const std::shared_ptr
 
     for (auto ip = m_target; ip < m_target + sizeof(JmpE9); ip += ix.length) {
         if (!decode(&ix, ip)) {
-            return std::unexpected{Error::failed_to_decode_instruction(ip)};
+            return tl::make_unexpected(Error::failed_to_decode_instruction(ip));
         }
 
         m_trampoline_size += ix.length;
@@ -224,7 +228,7 @@ std::expected<void, InlineHook::Error> InlineHook::e9_hook(const std::shared_ptr
                 desired_addresses.emplace_back(target_address);
                 m_trampoline_size += 3; // near unconditional branches are 3 bytes larger.
             } else {
-                return std::unexpected{Error::unsupported_instruction_in_trampoline(ip)};
+                return tl::make_unexpected(Error::unsupported_instruction_in_trampoline(ip));
             }
         }
     }
@@ -232,7 +236,7 @@ std::expected<void, InlineHook::Error> InlineHook::e9_hook(const std::shared_ptr
     auto trampoline_allocation = allocator->allocate_near(desired_addresses, m_trampoline_size);
 
     if (!trampoline_allocation) {
-        return std::unexpected{Error::bad_allocation(trampoline_allocation.error())};
+        return tl::make_unexpected(Error::bad_allocation(trampoline_allocation.error()));
     }
 
     m_trampoline = std::move(*trampoline_allocation);
@@ -240,7 +244,7 @@ std::expected<void, InlineHook::Error> InlineHook::e9_hook(const std::shared_ptr
     for (auto ip = m_target, tramp_ip = m_trampoline.data(); ip < m_target + m_original_bytes.size(); ip += ix.length) {
         if (!decode(&ix, ip)) {
             m_trampoline.free();
-            return std::unexpected{Error::failed_to_decode_instruction(ip)};
+            return tl::make_unexpected(Error::failed_to_decode_instruction(ip));
         }
 
         const auto is_relative = (ix.attributes & ZYDIS_ATTRIB_IS_RELATIVE) != 0;
@@ -295,8 +299,9 @@ std::expected<void, InlineHook::Error> InlineHook::e9_hook(const std::shared_ptr
     auto src = reinterpret_cast<uint8_t*>(&trampoline_epilogue->jmp_to_original);
     auto dst = m_target + m_original_bytes.size();
 
-    if (auto result = emit_jmp_e9(src, dst); !result) {
-        return std::unexpected{result.error()};
+    auto result = emit_jmp_e9(src, dst);
+    if (!result) {
+        return tl::make_unexpected(result.error());
     }
 
     // jmp from trampoline to destination.
@@ -306,12 +311,14 @@ std::expected<void, InlineHook::Error> InlineHook::e9_hook(const std::shared_ptr
 #if SAFETYHOOK_ARCH_X86_64
     auto data = reinterpret_cast<uint8_t*>(&trampoline_epilogue->destination_address);
 
-    if (auto result = emit_jmp_ff(src, dst, data); !result) {
-        return std::unexpected{result.error()};
+    auto result2 = emit_jmp_ff(src, dst, data); 
+    if (!result) {
+        return tl::make_unexpected(result2.error());
     }
 #elif SAFETYHOOK_ARCH_X86_32
-    if (auto result = emit_jmp_e9(src, dst); !result) {
-        return std::unexpected{result.error()};
+    auto result2 = emit_jmp_e9(src, dst);
+    if (!result2) {
+        return tl::make_unexpected(result2.error());
     }
 #endif
 
@@ -321,21 +328,21 @@ std::expected<void, InlineHook::Error> InlineHook::e9_hook(const std::shared_ptr
 }
 
 #if SAFETYHOOK_ARCH_X86_64
-std::expected<void, InlineHook::Error> InlineHook::ff_hook(const std::shared_ptr<Allocator>& allocator) {
+tl::expected<void, InlineHook::Error> InlineHook::ff_hook(const std::shared_ptr<Allocator>& allocator) {
     m_original_bytes.clear();
     m_trampoline_size = sizeof(TrampolineEpilogueFF);
     ZydisDecodedInstruction ix{};
 
     for (auto ip = m_target; ip < m_target + sizeof(JmpFF) + sizeof(uintptr_t); ip += ix.length) {
         if (!decode(&ix, ip)) {
-            return std::unexpected{Error::failed_to_decode_instruction(ip)};
+            return tl::make_unexpected(Error::failed_to_decode_instruction(ip));
         }
 
         // We can't support any instruction that is IP relative here because
         // ff_hook should only be called if e9_hook failed indicating that
         // we're likely outside the +- 2GB range.
         if (ix.attributes & ZYDIS_ATTRIB_IS_RELATIVE) {
-            return std::unexpected{Error::ip_relative_instruction_out_of_range(ip)};
+            return tl::make_unexpected(Error::ip_relative_instruction_out_of_range(ip));
         }
 
         m_original_bytes.insert(m_original_bytes.end(), ip, ip + ix.length);
@@ -345,7 +352,7 @@ std::expected<void, InlineHook::Error> InlineHook::ff_hook(const std::shared_ptr
     auto trampoline_allocation = allocator->allocate(m_trampoline_size);
 
     if (!trampoline_allocation) {
-        return std::unexpected{Error::bad_allocation(trampoline_allocation.error())};
+        return tl::make_unexpected(Error::bad_allocation(trampoline_allocation.error()));
     }
 
     m_trampoline = std::move(*trampoline_allocation);
@@ -360,8 +367,9 @@ std::expected<void, InlineHook::Error> InlineHook::ff_hook(const std::shared_ptr
     auto dst = m_target + m_original_bytes.size();
     auto data = reinterpret_cast<uint8_t*>(&trampoline_epilogue->original_address);
 
-    if (auto result = emit_jmp_ff(src, dst, data); !result) {
-        return std::unexpected{result.error()};
+    auto result = emit_jmp_ff(src, dst, data);
+    if (!result) {
+        return tl::make_unexpected(result.error());
     }
 
     m_type = Type::FF;
@@ -370,14 +378,14 @@ std::expected<void, InlineHook::Error> InlineHook::ff_hook(const std::shared_ptr
 }
 #endif
 
-std::expected<void, InlineHook::Error> InlineHook::enable() {
-    std::scoped_lock lock{m_mutex};
+tl::expected<void, InlineHook::Error> InlineHook::enable() {
+    std::unique_lock<std::recursive_mutex> lock(m_mutex);
 
     if (m_enabled) {
         return {};
     }
 
-    std::optional<Error> error;
+    tl::optional<Error> error;
 
     // jmp from original to trampoline.
     trap_threads(m_target, m_trampoline.data(), m_original_bytes.size(), [this, &error] {
@@ -385,17 +393,16 @@ std::expected<void, InlineHook::Error> InlineHook::enable() {
             auto trampoline_epilogue = reinterpret_cast<TrampolineEpilogueE9*>(
                 m_trampoline.address() + m_trampoline_size - sizeof(TrampolineEpilogueE9));
 
-            if (auto result = emit_jmp_e9(m_target,
-                    reinterpret_cast<uint8_t*>(&trampoline_epilogue->jmp_to_destination), m_original_bytes.size());
-                !result) {
+            auto result = emit_jmp_e9(m_target, reinterpret_cast<uint8_t*>(&trampoline_epilogue->jmp_to_destination), m_original_bytes.size());
+            if (!result) {
                 error = result.error();
             }
         }
 
 #if SAFETYHOOK_ARCH_X86_64
         if (m_type == Type::FF) {
-            if (auto result = emit_jmp_ff(m_target, m_destination, m_target + sizeof(JmpFF), m_original_bytes.size());
-                !result) {
+            auto result = emit_jmp_ff(m_target, m_destination, m_target + sizeof(JmpFF), m_original_bytes.size());
+            if (!result) {
                 error = result.error();
             }
         }
@@ -403,7 +410,7 @@ std::expected<void, InlineHook::Error> InlineHook::enable() {
     });
 
     if (error) {
-        return std::unexpected{*error};
+        return tl::make_unexpected(*error);
     }
 
     m_enabled = true;
@@ -411,8 +418,8 @@ std::expected<void, InlineHook::Error> InlineHook::enable() {
     return {};
 }
 
-std::expected<void, InlineHook::Error> InlineHook::disable() {
-    std::scoped_lock lock{m_mutex};
+tl::expected<void, InlineHook::Error> InlineHook::disable() {
+    std::unique_lock<std::recursive_mutex> lock(m_mutex);
 
     if (!m_enabled) {
         return {};
@@ -427,9 +434,9 @@ std::expected<void, InlineHook::Error> InlineHook::disable() {
 }
 
 void InlineHook::destroy() {
-    [[maybe_unused]] auto disable_result = disable();
+    disable();
 
-    std::scoped_lock lock{m_mutex};
+    std::unique_lock<std::recursive_mutex> lock(m_mutex);
 
     if (!m_trampoline) {
         return;

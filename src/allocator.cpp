@@ -50,7 +50,7 @@ std::shared_ptr<Allocator> Allocator::global() {
     static std::weak_ptr<Allocator> global_allocator{};
     static std::mutex global_allocator_mutex{};
 
-    std::scoped_lock lock{global_allocator_mutex};
+    std::lock_guard<std::mutex> lock(global_allocator_mutex);
 
     if (auto allocator = global_allocator.lock()) {
         return allocator;
@@ -67,22 +67,22 @@ std::shared_ptr<Allocator> Allocator::create() {
     return std::shared_ptr<Allocator>{new Allocator{}};
 }
 
-std::expected<Allocation, Allocator::Error> Allocator::allocate(size_t size) {
+tl::expected<Allocation, Allocator::Error> Allocator::allocate(size_t size) {
     return allocate_near({}, size, std::numeric_limits<size_t>::max());
 }
 
-std::expected<Allocation, Allocator::Error> Allocator::allocate_near(
+tl::expected<Allocation, Allocator::Error> Allocator::allocate_near(
     const std::vector<uint8_t*>& desired_addresses, size_t size, size_t max_distance) {
-    std::scoped_lock lock{m_mutex};
+    std::lock_guard<std::mutex> lock(m_mutex);
     return internal_allocate_near(desired_addresses, size, max_distance);
 }
 
 void Allocator::free(uint8_t* address, size_t size) {
-    std::scoped_lock lock{m_mutex};
+    std::lock_guard<std::mutex> lock(m_mutex);
     return internal_free(address, size);
 }
 
-std::expected<Allocation, Allocator::Error> Allocator::internal_allocate_near(
+tl::expected<Allocation, Allocator::Error> Allocator::internal_allocate_near(
     const std::vector<uint8_t*>& desired_addresses, size_t size, size_t max_distance) {
     // First search through our list of allocations for a free block that is large
     // enough.
@@ -115,10 +115,11 @@ std::expected<Allocation, Allocator::Error> Allocator::internal_allocate_near(
     auto allocation_address = allocate_nearby_memory(desired_addresses, allocation_size, max_distance);
 
     if (!allocation_address) {
-        return std::unexpected{allocation_address.error()};
+        return tl::make_unexpected(allocation_address.error());
     }
 
-    auto& allocation = m_memory.emplace_back(new Memory);
+    m_memory.emplace_back(new Memory);
+    auto& allocation = m_memory.back();
 
     allocation->address = *allocation_address;
     allocation->size = allocation_size;
@@ -176,14 +177,14 @@ void Allocator::combine_adjacent_freenodes(Memory& memory) {
     }
 }
 
-std::expected<uint8_t*, Allocator::Error> Allocator::allocate_nearby_memory(
+tl::expected<uint8_t*, Allocator::Error> Allocator::allocate_nearby_memory(
     const std::vector<uint8_t*>& desired_addresses, size_t size, size_t max_distance) {
     if (desired_addresses.empty()) {
         if (auto result = vm_allocate(nullptr, size, VM_ACCESS_RWX)) {
             return result.value();
         }
 
-        return std::unexpected{Error::BAD_VIRTUAL_ALLOC};
+        return tl::make_unexpected(Error::BAD_VIRTUAL_ALLOC);
     }
 
     auto attempt_allocation = [&](uint8_t* p) -> uint8_t* {
@@ -231,7 +232,8 @@ std::expected<uint8_t*, Allocator::Error> Allocator::allocate_nearby_memory(
             continue;
         }
 
-        if (auto allocation_address = attempt_allocation(p); allocation_address != nullptr) {
+        auto allocation_address = attempt_allocation(p);
+        if (allocation_address != nullptr) {
             return allocation_address;
         }
     }
@@ -250,16 +252,17 @@ std::expected<uint8_t*, Allocator::Error> Allocator::allocate_nearby_memory(
             continue;
         }
 
-        if (auto allocation_address = attempt_allocation(p); allocation_address != nullptr) {
+        auto allocation_address = attempt_allocation(p);
+        if (allocation_address != nullptr) {
             return allocation_address;
         }
     }
 
-    return std::unexpected{Error::NO_MEMORY_IN_RANGE};
+    return tl::make_unexpected(Error::NO_MEMORY_IN_RANGE);
 }
 
 bool Allocator::in_range(uint8_t* address, const std::vector<uint8_t*>& desired_addresses, size_t max_distance) {
-    return std::ranges::all_of(desired_addresses, [&](const auto& desired_address) {
+    return std::all_of(desired_addresses.begin(), desired_addresses.end(), [&](const uint8_t* desired_address) {
         const size_t delta = (address > desired_address) ? address - desired_address : desired_address - address;
         return delta <= max_distance;
     });

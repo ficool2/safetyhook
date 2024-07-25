@@ -5,7 +5,7 @@
 
 #ifndef SAFETYHOOK_USE_CXXMODULES
 #include <cstdint>
-#include <expected>
+#include "tl/expected.hpp"
 #include <memory>
 #include <mutex>
 #include <vector>
@@ -32,15 +32,15 @@ public:
 
     /// @brief Returns a pointer to the data of the allocation.
     /// @return Pointer to the data of the allocation.
-    [[nodiscard]] uint8_t* data() const noexcept { return m_address; }
+    uint8_t* data() const noexcept { return m_address; }
 
     /// @brief Returns the address of the allocation.
     /// @return The address of the allocation.
-    [[nodiscard]] uintptr_t address() const noexcept { return (uintptr_t)m_address; }
+    uintptr_t address() const noexcept { return (uintptr_t)m_address; }
 
     /// @brief Returns the size of the allocation.
     /// @return The size of the allocation.
-    [[nodiscard]] size_t size() const noexcept { return m_size; }
+    size_t size() const noexcept { return m_size; }
 
     /// @brief Tests if the allocation is valid.
     /// @return True if the allocation is valid, false otherwise.
@@ -62,11 +62,11 @@ class Allocator final : public std::enable_shared_from_this<Allocator> {
 public:
     /// @brief Returns the global Allocator.
     /// @return The global Allocator.
-    [[nodiscard]] static std::shared_ptr<Allocator> global();
+    static std::shared_ptr<Allocator> global();
 
     /// @brief Creates a new Allocator.
     /// @return The new Allocator.
-    [[nodiscard]] static std::shared_ptr<Allocator> create();
+    static std::shared_ptr<Allocator> create();
 
     Allocator(const Allocator&) = delete;
     Allocator(Allocator&&) noexcept = delete;
@@ -83,14 +83,14 @@ public:
     /// @brief Allocates memory.
     /// @param size The size of the allocation.
     /// @return The Allocation or an Allocator::Error if the allocation failed.
-    [[nodiscard]] std::expected<Allocation, Error> allocate(size_t size);
+    tl::expected<Allocation, Error> allocate(size_t size);
 
     /// @brief Allocates memory near a target address.
     /// @param desired_addresses The target address.
     /// @param size The size of the allocation.
     /// @param max_distance The maximum distance from the target address.
     /// @return The Allocation or an Allocator::Error if the allocation failed.
-    [[nodiscard]] std::expected<Allocation, Error> allocate_near(
+    tl::expected<Allocation, Error> allocate_near(
         const std::vector<uint8_t*>& desired_addresses, size_t size, size_t max_distance = 0x7FFF'FFFF);
 
 protected:
@@ -118,14 +118,14 @@ private:
 
     Allocator() = default;
 
-    [[nodiscard]] std::expected<Allocation, Error> internal_allocate_near(
+   tl::expected<Allocation, Error> internal_allocate_near(
         const std::vector<uint8_t*>& desired_addresses, size_t size, size_t max_distance = 0x7FFF'FFFF);
     void internal_free(uint8_t* address, size_t size);
 
     static void combine_adjacent_freenodes(Memory& memory);
-    [[nodiscard]] static std::expected<uint8_t*, Error> allocate_nearby_memory(
+    static tl::expected<uint8_t*, Error> allocate_nearby_memory(
         const std::vector<uint8_t*>& desired_addresses, size_t size, size_t max_distance);
-    [[nodiscard]] static bool in_range(
+    static bool in_range(
         uint8_t* address, const std::vector<uint8_t*>& desired_addresses, size_t max_distance);
 };
 } // namespace safetyhook

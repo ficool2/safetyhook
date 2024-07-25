@@ -3,7 +3,7 @@
 
 #ifndef SAFETYHOOK_USE_CXXMODULES
 #include <cstdint>
-#include <expected>
+#include "tl/expected.hpp"
 #include <functional>
 #else
 import std.compat;
@@ -33,10 +33,10 @@ struct VmAccess {
     }
 };
 
-constexpr VmAccess VM_ACCESS_R{.read = true, .write = false, .execute = false};
-constexpr VmAccess VM_ACCESS_RW{.read = true, .write = true, .execute = false};
-constexpr VmAccess VM_ACCESS_RX{.read = true, .write = false, .execute = true};
-constexpr VmAccess VM_ACCESS_RWX{.read = true, .write = true, .execute = true};
+constexpr VmAccess VM_ACCESS_R{ true, false, false};
+constexpr VmAccess VM_ACCESS_RW{ true, true, false};
+constexpr VmAccess VM_ACCESS_RX{ true, false, true};
+constexpr VmAccess VM_ACCESS_RWX{ true, true, true};
 
 struct VmBasicInfo {
     uint8_t* address;
@@ -45,11 +45,11 @@ struct VmBasicInfo {
     bool is_free;
 };
 
-std::expected<uint8_t*, OsError> vm_allocate(uint8_t* address, size_t size, VmAccess access);
+tl::expected<uint8_t*, OsError> vm_allocate(uint8_t* address, size_t size, VmAccess access);
 void vm_free(uint8_t* address);
-std::expected<uint32_t, OsError> vm_protect(uint8_t* address, size_t size, VmAccess access);
-std::expected<uint32_t, OsError> vm_protect(uint8_t* address, size_t size, uint32_t access);
-std::expected<VmBasicInfo, OsError> vm_query(uint8_t* address);
+tl::expected<uint32_t, OsError> vm_protect(uint8_t* address, size_t size, VmAccess access);
+tl::expected<uint32_t, OsError> vm_protect(uint8_t* address, size_t size, uint32_t access);
+tl::expected<VmBasicInfo, OsError> vm_query(uint8_t* address);
 bool vm_is_readable(uint8_t* address, size_t size);
 bool vm_is_writable(uint8_t* address, size_t size);
 bool vm_is_executable(uint8_t* address);

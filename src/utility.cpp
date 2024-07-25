@@ -30,11 +30,11 @@ UnprotectMemory& UnprotectMemory::operator=(UnprotectMemory&& other) noexcept {
     return *this;
 }
 
-std::optional<UnprotectMemory> unprotect(uint8_t* address, size_t size) {
+tl::optional<UnprotectMemory> unprotect(uint8_t* address, size_t size) {
     auto old_protection = vm_protect(address, size, VM_ACCESS_RWX);
 
     if (!old_protection) {
-        return std::nullopt;
+        return tl::nullopt;
     }
 
     return UnprotectMemory{address, size, old_protection.value()};

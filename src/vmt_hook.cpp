@@ -37,7 +37,7 @@ void VmHook::destroy() {
     }
 }
 
-std::expected<VmtHook, VmtHook::Error> VmtHook::create(void* object) {
+tl::expected<VmtHook, VmtHook::Error> VmtHook::create(void* object) {
     VmtHook hook{};
 
     const auto original_vmt = *reinterpret_cast<uint8_t***>(object);
@@ -54,7 +54,7 @@ std::expected<VmtHook, VmtHook::Error> VmtHook::create(void* object) {
     auto allocation = Allocator::global()->allocate(num_vmt_entries * sizeof(uint8_t*));
 
     if (!allocation) {
-        return std::unexpected{Error::bad_allocation(allocation.error())};
+        return tl::make_unexpected(Error::bad_allocation(allocation.error()));
     }
 
     hook.m_new_vmt_allocation = std::make_shared<Allocation>(std::move(*allocation));
@@ -124,7 +124,10 @@ void VmtHook::reset() {
 }
 
 void VmtHook::destroy() {
-    for (const auto [object, original_vmt] : m_objects) {
+    for (const auto& item : m_objects) {
+        void* object = item.first;
+        uint8_t** original_vmt = item.second;
+
         if (!vm_is_writable(reinterpret_cast<uint8_t*>(object), sizeof(void*))) {
             continue;
         }

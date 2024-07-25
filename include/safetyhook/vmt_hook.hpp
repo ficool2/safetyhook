@@ -5,7 +5,7 @@
 
 #ifndef SAFETYHOOK_USE_CXXMODULES
 #include <cstdint>
-#include <expected>
+#include "tl/expected.hpp"
 #include <unordered_map>
 #else
 import std.compat;
@@ -30,7 +30,7 @@ public:
     void reset();
 
     /// @brief Gets the original method pointer.
-    template <typename T> [[nodiscard]] T original() const { return reinterpret_cast<T>(m_original_vm); }
+    template <typename T> T original() const { return reinterpret_cast<T>(m_original_vm); }
 
     /// @brief Calls the original method.
     /// @tparam RetT The return type of the method.
@@ -109,15 +109,16 @@ public:
         /// @brief Create a BAD_ALLOCATION error.
         /// @param err The Allocator::Error that failed.
         /// @return The new BAD_ALLOCATION error.
-        [[nodiscard]] static Error bad_allocation(Allocator::Error err) {
-            return {.type = BAD_ALLOCATION, .allocator_error = err};
+        static Error bad_allocation(Allocator::Error err) {
+            Error e; e.type = BAD_ALLOCATION; e.allocator_error = err;
+            return e;
         }
     };
 
     /// @brief Creates a new VmtHook object. Will clone the VMT of the given object and replace it.
     /// @param object The object to hook.
     /// @return The VmtHook object or a VmtHook::Error if an error occurred.
-    [[nodiscard]] static std::expected<VmtHook, Error> create(void* object);
+    static tl::expected<VmtHook, Error> create(void* object);
 
     VmtHook() = default;
     VmtHook(const VmtHook&) = delete;
@@ -141,12 +142,13 @@ public:
     /// @brief Hooks a method in the VMT.
     /// @param index The index of the method to hook.
     /// @param new_function The new function to use.
-    [[nodiscard]] std::expected<VmHook, Error> hook_method(size_t index, FnPtr auto new_function) {
+    template <typename T>
+    tl::expected<VmHook, Error> hook_method(size_t index, T new_function) {
         VmHook hook{};
 
         ++index; // Skip RTTI pointer.
         hook.m_original_vm = m_new_vmt[index];
-        store(reinterpret_cast<uint8_t*>(&hook.m_new_vm), new_function);
+        store(reinterpret_cast<uint8_t*>(&hook.m_new_vm), FnPtr(new_function));
         hook.m_vmt_entry = &m_new_vmt[index];
         hook.m_new_vmt_allocation = m_new_vmt_allocation;
         m_new_vmt[index] = hook.m_new_vm;

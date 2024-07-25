@@ -1,6 +1,10 @@
+# Information
+
+Backport of [SafetyHook](https://github.com/cursey/safetyhook) that supports C++20, C++17 and C++14. It may also work under C++11 but this is not tested. This uses [tl](https://tl.tartanllama.xyz/) as a polyfill.
+
 # SafetyHook
 
-SafetyHook is a **C++23** procedure hooking library for Windows x86 and x86_64 systems. It aims to make runtime procedure hooking as safe as possible while maintaining simplicity of its implementation. To that end it currently does:
+SafetyHook is a **C++14** procedure hooking library for Windows x86 and x86_64 systems. It aims to make runtime procedure hooking as safe as possible while maintaining simplicity of its implementation. To that end it currently does:
 
 * Stops all other threads when creating or deleting hooks
 * Fixes the IP of threads that may be affected by the creation or deletion of hooks
